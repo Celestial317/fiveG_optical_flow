@@ -1,5 +1,6 @@
 import os
 # CRITICAL: This environment variable MUST be set before importing cv2
+# This forces a stable TCP connection, preventing dropped frames or UDP timeouts
 os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
 
 import cv2
@@ -58,14 +59,18 @@ def main():
     model.to(device)
     print("Model loaded successfully.")
 
-    # The winning URL from your terminal output
-    RTSP_URL = "rtsp://admin:admin123@10.101.0.7:554/live/sub"
+    # --- THE GOLDEN URL ---
+    # Extracted directly from the Sparsh RTSP Web Configuration Panel
+    # stream=1 targets the SubStream (which you configured as H.264)
+    CAMERA_IP = "10.101.0.7" # Change to 192.168.128.10 if routing fails
+    RTSP_URL = f"rtsp://admin:admin123@{CAMERA_IP}:554/avstream/channel=1/stream=1.sdp"
+    
     print(f"Connecting to 5G Camera Stream: {RTSP_URL}")
     
     cap = cv2.VideoCapture(RTSP_URL, cv2.CAP_FFMPEG)
     
     if not cap.isOpened():
-        print("Error: Could not open video source. Did you change the Sub Stream to H.264 in the Web UI?")
+        print("Error: Could not open video source. Please verify camera IP and network routing.")
         return
 
     ret, prev_frame = cap.read()
