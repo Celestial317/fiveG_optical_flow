@@ -3,6 +3,7 @@ import torch
 import numpy as np
 import time
 from torchvision.models.optical_flow import raft_small
+from urllib.parse import quote
 
 # Clamp PyTorch threads to avoid CPU context-switching overhead
 torch.set_num_threads(4) 
@@ -32,25 +33,51 @@ def preprocess_frame(frame, target_size=(320, 240)):
     
     return tensor.unsqueeze(0)  
 
+CAMERA_HOST = "10.101.0.7"
+CAMERA_USERNAME = "admin"
+CAMERA_PASSWORD = "admin@123"
+
+
+def build_rtsp_candidates(host, username, password):
+    """Return common RTSP URLs to try for a camera at the given host."""
+    auth = f"{quote(username, safe='')}:{quote(password, safe='')}"
+    return [
+        f"rtsp://{auth}@{host}:554/stream1",
+        f"rtsp://{auth}@{host}:554/ch01/0",
+        f"rtsp://{auth}@{host}:554/cam/realmonitor?channel=1&subtype=0",
+        f"rtsp://{auth}@{host}:554/Streaming/Channels/101",
+    ]
+
+
 def get_video_source():
-    """Ask for an RTSP link; fall back to the default webcam when blank."""
-    source = input("Enter rstp link: ").strip()
-    if not source or source.lower() in {"0", "webcam", "camera"}:
-        return 0
-    return source
+    """Return RTSP candidates for the camera, or a webcam fallback on demand."""
+    print("Trying RTSP stream URLs for the Sparsh camera...")
+    return build_rtsp_candidates(CAMERA_HOST, CAMERA_USERNAME, CAMERA_PASSWORD)
 
 def open_capture(source):
-    cap = cv2.VideoCapture(source)
     if source == 0:
+        cap = cv2.VideoCapture(0)
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
         return cap
 
-    if cap.isOpened():
-        return cap
+    if isinstance(source, str):
+        cap = cv2.VideoCapture(source, cv2.CAP_FFMPEG)
+        if cap.isOpened():
+            return cap
 
-    print("Warning: Could not open RTSP stream, falling back to webcam.")
-    cap.release()
+        cap.release()
+
+    if isinstance(source, (list, tuple)):
+        for candidate in source:
+            print(f"Trying RTSP URL: {candidate}")
+            cap = cv2.VideoCapture(candidate, cv2.CAP_FFMPEG)
+            if cap.isOpened():
+                print(f"Connected to RTSP stream: {candidate}")
+                return cap
+            cap.release()
+
+    print("Warning: Could not open any RTSP stream, falling back to webcam.")
     cap = cv2.VideoCapture(0)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
