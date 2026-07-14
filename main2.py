@@ -1,13 +1,12 @@
+import os
+# CRITICAL: This environment variable MUST be set before importing cv2
+os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
+
 import cv2
 import torch
 import numpy as np
 import time
-import os
 from torchvision.models.optical_flow import raft_small
-from urllib.parse import quote
-
-# --- THE FIX: Force OpenCV to use TCP instead of UDP for RTSP ---
-os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
 
 # Clamp PyTorch threads to avoid CPU context-switching overhead
 torch.set_num_threads(4) 
@@ -36,68 +35,6 @@ def preprocess_frame(frame, target_size=(320, 240)):
     
     return tensor.unsqueeze(0)  
 
-CAMERA_HOST = "10.101.0.7"
-CAMERA_USERNAME = "admin"
-CAMERA_PASSWORD = "admin123"
-
-def build_rtsp_candidates(host, username, password):
-    """Return common RTSP URLs to try for a camera at the given host."""
-    # Since password is now alphanumeric, we drop URL encoding to prevent parser errors
-    auth = f"{username}:{password}" 
-    
-    return [
-        # 1. Hikvision-style OEM (Very common for Sparsh) - Sub Stream
-        f"rtsp://{auth}@{host}:554/Streaming/Channels/102",
-        
-        # 2. Uniview-style OEM - Sub Stream
-        f"rtsp://{auth}@{host}:554/unicast/c1/s1/live",
-        
-        # 3. Dahua-style OEM - Sub Stream
-        f"rtsp://{auth}@{host}:554/cam/realmonitor?channel=1&subtype=1",
-        
-        # 4. Standard Generic Profiles
-        f"rtsp://{auth}@{host}:554/live/sub",
-        f"rtsp://{auth}@{host}:554/11",
-        f"rtsp://{auth}@{host}:554/profile2/media.smp",
-        
-        # 5. The Main streams (Fallback, though H.265 might cause issues)
-        f"rtsp://{auth}@{host}:554/Streaming/Channels/101",
-        f"rtsp://{auth}@{host}:554/unicast/c1/s0/live"
-    ]
-
-def get_video_source():
-    """Return RTSP candidates for the camera, or a webcam fallback on demand."""
-    print("Trying RTSP stream URLs for the Sparsh camera...")
-    return build_rtsp_candidates(CAMERA_HOST, CAMERA_USERNAME, CAMERA_PASSWORD)
-
-def open_capture(source):
-    if source == 0:
-        cap = cv2.VideoCapture(0)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
-        return cap
-
-    if isinstance(source, str):
-        cap = cv2.VideoCapture(source, cv2.CAP_FFMPEG)
-        if cap.isOpened():
-            return cap
-        cap.release()
-
-    if isinstance(source, (list, tuple)):
-        for candidate in source:
-            print(f"Testing connection to: {candidate}")
-            cap = cv2.VideoCapture(candidate, cv2.CAP_FFMPEG)
-            if cap.isOpened():
-                print(f">>> Successfully connected to: {candidate}")
-                return cap
-            cap.release()
-
-    print("Warning: Could not open any RTSP stream, falling back to webcam.")
-    cap = cv2.VideoCapture(0)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
-    return cap
-
 def overlay_metrics(frame, latency_ms, end_pixel_error):
     """Draw runtime metrics over the output frame."""
     annotated = frame.copy()
@@ -106,7 +43,6 @@ def overlay_metrics(frame, latency_ms, end_pixel_error):
     cv2.putText(annotated, f"End Pixel Error: {end_pixel_error:.3f}", (10, 60),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2, cv2.LINE_AA)
     return annotated
-
 
 def main():
     print("Initializing RAFT-Small architecture...")
@@ -118,15 +54,18 @@ def main():
     state_dict = torch.load("best_raft_model.pth", map_location=device, weights_only=True)
     model.load_state_dict(state_dict)
     
-    # Optional: fuse modules if applicable, but eval() is the crucial step
     model.eval()
     model.to(device)
     print("Model loaded successfully.")
 
-    cap = open_capture(get_video_source())
+    # The winning URL from your terminal output
+    RTSP_URL = "rtsp://admin:admin123@10.101.0.7:554/live/sub"
+    print(f"Connecting to 5G Camera Stream: {RTSP_URL}")
+    
+    cap = cv2.VideoCapture(RTSP_URL, cv2.CAP_FFMPEG)
     
     if not cap.isOpened():
-        print("Error: Could not open video source.")
+        print("Error: Could not open video source. Did you change the Sub Stream to H.264 in the Web UI?")
         return
 
     ret, prev_frame = cap.read()
@@ -138,7 +77,6 @@ def main():
 
     print("Starting live inference. Press 'q' to quit.")
     
-    # Use torch.inference_mode() - it is slightly faster than no_grad()
     with torch.inference_mode():
         while True:
             frame_start = time.perf_counter()
@@ -149,9 +87,8 @@ def main():
                 
             current_tensor = preprocess_frame(current_frame)
             
-            # OPTIMIZATION: Hardcap the GRU iterations to 4 (default is 12)
+            # Hardcap the GRU iterations to 4 for CPU latency
             flow_predictions = model(prev_tensor, current_tensor, num_flow_updates=4)
-            
             final_flow = flow_predictions[-1][0].numpy()
 
             flow_vis = flow_to_color(final_flow)
@@ -162,7 +99,7 @@ def main():
             latency_ms = (time.perf_counter() - frame_start) * 1000.0
             combined_view = overlay_metrics(combined_view, latency_ms, end_pixel_error)
             
-            cv2.imshow('Left: Live Feed | Right: Optical Flow', combined_view)
+            cv2.imshow('Left: Live 5G Feed | Right: Computed Optical Flow', combined_view)
             
             prev_tensor = current_tensor
             
