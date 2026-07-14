@@ -42,13 +42,27 @@ CAMERA_PASSWORD = "admin123"
 
 def build_rtsp_candidates(host, username, password):
     """Return common RTSP URLs to try for a camera at the given host."""
-    auth = f"{quote(username, safe='')}:{quote(password, safe='')}"
+    # Since password is now alphanumeric, we drop URL encoding to prevent parser errors
+    auth = f"{username}:{password}" 
+    
     return [
-        # Put the known working path first! 
-        # /1/2 targets the Sub-Stream (H.264) which OpenCV can decode.
-        f"rtsp://{auth}@{host}:554/snl/live/1/2", 
-        # Fallback to main stream just in case
-        f"rtsp://{auth}@{host}:554/snl/live/1/1",
+        # 1. Hikvision-style OEM (Very common for Sparsh) - Sub Stream
+        f"rtsp://{auth}@{host}:554/Streaming/Channels/102",
+        
+        # 2. Uniview-style OEM - Sub Stream
+        f"rtsp://{auth}@{host}:554/unicast/c1/s1/live",
+        
+        # 3. Dahua-style OEM - Sub Stream
+        f"rtsp://{auth}@{host}:554/cam/realmonitor?channel=1&subtype=1",
+        
+        # 4. Standard Generic Profiles
+        f"rtsp://{auth}@{host}:554/live/sub",
+        f"rtsp://{auth}@{host}:554/11",
+        f"rtsp://{auth}@{host}:554/profile2/media.smp",
+        
+        # 5. The Main streams (Fallback, though H.265 might cause issues)
+        f"rtsp://{auth}@{host}:554/Streaming/Channels/101",
+        f"rtsp://{auth}@{host}:554/unicast/c1/s0/live"
     ]
 
 def get_video_source():
