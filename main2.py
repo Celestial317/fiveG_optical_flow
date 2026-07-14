@@ -45,6 +45,8 @@ def build_rtsp_candidates(host, username, password):
         f"rtsp://{auth}@{host}:554/stream1",
         f"rtsp://{auth}@{host}:554/ch01/0",
         f"rtsp://{auth}@{host}:554/cam/realmonitor?channel=1&subtype=0",
+        f"rtsp://{auth}@{host}:554/live",
+        f"rtsp://{auth}@{host}:554/snl/live/1/1",
         f"rtsp://{auth}@{host}:554/Streaming/Channels/101",
     ]
 
