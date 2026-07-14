@@ -35,7 +35,7 @@ def preprocess_frame(frame, target_size=(320, 240)):
 
 CAMERA_HOST = "10.101.0.7"
 CAMERA_USERNAME = "admin"
-CAMERA_PASSWORD = "admin@123"
+CAMERA_PASSWORD = "admin123"
 
 
 def build_rtsp_candidates(host, username, password):
